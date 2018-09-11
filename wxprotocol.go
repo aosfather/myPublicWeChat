@@ -234,7 +234,7 @@ type WXxmlLinkMessage struct {
 	xmlBaseMessage
 	Title       string //标题
 	Description string //描述
-	PicUrl      string //封面缩略图的url
+	Url         string //封面缩略图的url
 }
 
 //被动回复消息格式
@@ -325,6 +325,45 @@ type xmlReplyArticlesItem struct {
 	Description string   //描述
 	PicUrl      string   //图片链接
 	Url         string   //跳转
+}
+
+//事件
+type xmlBaseEvent struct {
+	FromUserName string
+	ToUserName   string
+	CreateTime   int64
+	MsgType      string
+	Event        string
+}
+
+//订阅、取消订阅消息
+type SubscribeEvent struct {
+	XMLName      xml.Name `xml:"xml"`
+	xmlBaseEvent          //	事件类型，subscribe(订阅)、unsubscribe(取消订阅)
+}
+
+//二维码关注事件
+type SubscribeQREvent struct {
+	XMLName      xml.Name `xml:"xml"`
+	xmlBaseEvent          //如果用户已经关注事件类型，SCAN，未关注时候类型为subscribe
+	EventKey     string   //事件KEY值，qrscene_为前缀，后面为二维码的参数值
+	Ticket       string   //二维码的ticket，可用来换取二维码图片
+}
+
+//上报地址事件
+type LocationEvent struct {
+	XMLName      xml.Name `xml:"xml"`
+	xmlBaseEvent          //	事件类型，LOCATION
+	Latitude     float64  //地理位置纬度
+	Longitude    float64  //地理位置经度
+	Precision    float64  //地理位置精度
+}
+
+//跳转事件
+type UrlEvent struct {
+	XMLName      xml.Name `xml:"xml"`
+	xmlBaseEvent          //	事件类型，跳转 VIEW，菜单点击 CLICK
+	EventKey     string   //事件KEY值，与自定义菜单接口中KEY值对应|事件KEY值，设置的跳转URL
 }
 
 type WXPublicApplication struct {
