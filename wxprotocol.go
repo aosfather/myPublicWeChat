@@ -377,7 +377,7 @@ func (this *WXPublicApplication) Get(c mvc.Context, p interface{}) (interface{},
 		this.logger.Info("wx validate %v", q)
 		ret := this.encryted.VerifyURL(q.Signature, q.Timestamp, q.Nonce, q.Echostr)
 		if ret {
-			return "", nil
+			return q.Echostr, nil
 		}
 
 	}
@@ -406,4 +406,10 @@ func (this *WXPublicApplication) Post(c mvc.Context, p interface{}) (interface{}
 
 	return "hi", nil
 
+}
+
+//消息处理接口，用于实现应用自身的逻辑
+type WXProcessor interface {
+	OnEvent() interface{}   //事件响应
+	OnMessage() interface{} //消息响应
 }
