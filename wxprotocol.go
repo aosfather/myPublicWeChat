@@ -16,6 +16,19 @@ import (
 	"time"
 )
 
+//事件类型
+const (
+	EVENT_SUB      = "subscribe"   //订阅
+	EVENT_UNSUB    = "unsubscribe" //取消订阅
+	EVENT_SCAN     = "SCAN"        //扫描
+	EVENT_LOCATION = "LOCATION"    //地址
+	EVENT_CLICK    = "CLICK"       //点击
+	EVENT_VIEW     = "VIEW"        //跳转
+
+	//消息类型
+	MSGTYPE_TEXT = "text"
+)
+
 //微信的验证请求
 type wxValidateRequest struct {
 	Signature string `Field:"signature"`
@@ -62,6 +75,7 @@ func (this *ApplicationEncrypt) Init(token, appid, aeskey string) {
 	this.token = token
 	this.appId = appid
 	if len(aeskey) != 43 { //密码长度不对失败
+		println(len(aeskey))
 		panic(aeskey)
 	}
 	this.encodingAESKey = aeskey
@@ -73,7 +87,7 @@ func (this *ApplicationEncrypt) Init(token, appid, aeskey string) {
 
 func (this *ApplicationEncrypt) VerifyURL(msg_signature, timestamp, nonce, echostr string) bool {
 
-	signature := wx.Signature(this.token, timestamp, nonce, echostr)
+	signature := wx.Signature(this.token, timestamp, nonce)
 	fmt.Println("signature:" + signature + "|" + msg_signature)
 	if signature != msg_signature {
 		return false
@@ -374,13 +388,13 @@ type XMLEvent struct {
 }
 
 type WXPublicApplication struct {
-	Token  string `Values:""`
-	AppId  string `Values:""`
-	AESKey string `Values:""`
+	Token  string `Value:"my.wx.token"`
+	AppId  string `Value:"my.wx.appid"`
+	AESKey string `Value:"my.wx.aeskey"`
 	mvc.SimpleController
 	logger    utils.Log
 	encryted  *ApplicationEncrypt //加解密
-	processor WXProcessor         `Inject:""` //处理器
+	Processor WXProcessor         `Inject:"processor"` //处理器
 }
 
 func (this *WXPublicApplication) Init() {
@@ -409,6 +423,7 @@ func (this *WXPublicApplication) Get(c mvc.Context, p interface{}) (interface{},
 			return q.Echostr, nil
 		} else {
 			this.logger.Info("wx validate failed！")
+
 		}
 
 	}
@@ -428,7 +443,7 @@ func (this *WXPublicApplication) Post(c mvc.Context, p interface{}) (interface{}
 			rmsg := xmlBaseMessage{}
 			//消息处理
 			if strings.Contains(result, "ToUserName") {
-				if this.processor != nil {
+				if this.Processor != nil {
 					//解析result，压入对象
 
 					msgdata := []byte(result)
@@ -452,15 +467,15 @@ func (this *WXPublicApplication) Post(c mvc.Context, p interface{}) (interface{}
 					}
 					//重新解析消息
 					xml.Unmarshal(msgdata, &realmsg)
-					replymsg = this.processor.OnMessage(rmsg.MsgType, realmsg)
+					replymsg = this.Processor.OnMessage(rmsg.MsgType, realmsg)
 
 				}
 
 			} else { //事件处理
-				if this.processor != nil {
+				if this.Processor != nil {
 					event := XMLEvent{}
 					xml.Unmarshal([]byte(result), &event)
-					replymsg = this.processor.OnEvent(event)
+					replymsg = this.Processor.OnEvent(event)
 				}
 			}
 
