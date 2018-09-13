@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/base64"
@@ -12,6 +13,7 @@ import (
 	"github.com/aosfather/bingo/wx"
 	"github.com/aosfather/bingo/wx/wxcorp"
 	"strings"
+	"time"
 )
 
 //微信的验证请求
@@ -79,6 +81,32 @@ func (this *ApplicationEncrypt) VerifyURL(msg_signature, timestamp, nonce, echos
 	}
 	return true
 
+}
+
+func (this *ApplicationEncrypt) EncryptMsg(replyMsg, nonce, timestamp string) (int, string) {
+	msg := wxcorp.CorpOutputMessage{}
+	msg.Encrypt = this.encrypt(replyMsg)
+	msg.Nonce = nonce
+	msg.MsgSignature = wx.Signature(this.token, timestamp, nonce, msg.Encrypt)
+	msg.TimeStamp = timestamp
+	outxml, _ := xml.Marshal(msg)
+	return 0, string(outxml)
+}
+
+//加密
+func (this *ApplicationEncrypt) encrypt(text string) string {
+	var byteGroup bytes.Buffer
+	//格式 16位的random字符+文本长度（4位的网络字节序列）+文本+企业id
+	randStr := wxcorp.RandomStr(16)
+	byteGroup.Write([]byte(randStr))
+	byteGroup.Write(NumberToBytesOrder(len(text)))
+	byteGroup.Write([]byte(text))
+
+	byteGroup.Write([]byte(this.appId))
+
+	encryptedText := this.theAES.encrypt(byteGroup.Bytes())
+	//转base64
+	return base64.StdEncoding.EncodeToString(encryptedText)
 }
 
 func (this *ApplicationEncrypt) DecryptInputMsg(msg_signature, timestamp, nonce string, postdata WxEncryptInputMessage) (int, string) {
@@ -301,7 +329,6 @@ type xmlReplyVideoContent struct {
 	MediaId     string   //媒体id
 	Title       string   //标题
 	Description string   //描述
-
 }
 
 type xmlReplyMusicContent struct {
@@ -311,7 +338,6 @@ type xmlReplyMusicContent struct {
 	MusicURL     string   //音乐链接
 	HQMusicUrl   string   //高质量音乐链接，WIFI环境优先使用该链接播放音乐
 	ThumbMediaId string   //必填，缩略图的媒体id，通过素材管理中的接口上传多媒体文件，得到的id
-
 }
 
 type xmlReplyArticlesContent struct {
@@ -328,48 +354,51 @@ type xmlReplyArticlesItem struct {
 }
 
 //事件
-type xmlBaseEvent struct {
+type XMLEvent struct {
+	XMLName      xml.Name `xml:"xml"`
 	FromUserName string
 	ToUserName   string
 	CreateTime   int64
-	MsgType      string
-	Event        string
-}
+	MsgType      string //事件类型，subscribe(订阅)、unsubscribe(取消订阅),SCAN(扫描二维码)
+	//如果用户已经关注事件类型，SCAN，未关注时候类型为subscribe
+	//	事件类型，跳转 VIEW，菜单点击 CLICK
+	Event string
 
-//订阅、取消订阅消息
-type SubscribeEvent struct {
-	XMLName      xml.Name `xml:"xml"`
-	xmlBaseEvent          //	事件类型，subscribe(订阅)、unsubscribe(取消订阅)
-}
+	EventKey string //事件KEY值，qrscene_为前缀，后面为二维码的参数值；VIEW和CLICK时候，与自定义菜单接口中KEY值对应|事件KEY值，设置的跳转URL
 
-//二维码关注事件
-type SubscribeQREvent struct {
-	XMLName      xml.Name `xml:"xml"`
-	xmlBaseEvent          //如果用户已经关注事件类型，SCAN，未关注时候类型为subscribe
-	EventKey     string   //事件KEY值，qrscene_为前缀，后面为二维码的参数值
-	Ticket       string   //二维码的ticket，可用来换取二维码图片
-}
-
-//上报地址事件
-type LocationEvent struct {
-	XMLName      xml.Name `xml:"xml"`
-	xmlBaseEvent          //	事件类型，LOCATION
-	Latitude     float64  //地理位置纬度
-	Longitude    float64  //地理位置经度
-	Precision    float64  //地理位置精度
-}
-
-//跳转事件
-type UrlEvent struct {
-	XMLName      xml.Name `xml:"xml"`
-	xmlBaseEvent          //	事件类型，跳转 VIEW，菜单点击 CLICK
-	EventKey     string   //事件KEY值，与自定义菜单接口中KEY值对应|事件KEY值，设置的跳转URL
+	Ticket string //二维码的ticket，可用来换取二维码图片
+	//	事件类型，LOCATION
+	Latitude  float64 //地理位置纬度
+	Longitude float64 //地理位置经度
+	Precision float64 //地理位置精度
 }
 
 type WXPublicApplication struct {
+	Token  string `Values:""`
+	AppId  string `Values:""`
+	AESKey string `Values:""`
 	mvc.SimpleController
-	logger   utils.Log
-	encryted ApplicationEncrypt
+	logger    utils.Log
+	encryted  *ApplicationEncrypt //加解密
+	processor WXProcessor         `Inject:""` //处理器
+}
+
+func (this *WXPublicApplication) Init() {
+	this.logger = this.GetBeanFactory().GetLog("wx_public")
+	this.encryted = &ApplicationEncrypt{}
+	this.encryted.Init(this.Token, this.AppId, this.AESKey)
+}
+
+func (this *WXPublicApplication) GetUrl() string {
+	return "/wx/public_msg"
+}
+
+func (this *WXPublicApplication) GetParameType(method string) interface{} {
+	if method == "GET" {
+		return &wxValidateRequest{}
+	} else {
+		return &wxInputMsg{}
+	}
 }
 
 func (this *WXPublicApplication) Get(c mvc.Context, p interface{}) (interface{}, mvc.BingoError) {
@@ -378,6 +407,8 @@ func (this *WXPublicApplication) Get(c mvc.Context, p interface{}) (interface{},
 		ret := this.encryted.VerifyURL(q.Signature, q.Timestamp, q.Nonce, q.Echostr)
 		if ret {
 			return q.Echostr, nil
+		} else {
+			this.logger.Info("wx validate failed！")
 		}
 
 	}
@@ -393,13 +424,60 @@ func (this *WXPublicApplication) Post(c mvc.Context, p interface{}) (interface{}
 		ret, result := this.encryted.DecryptInputMsg(msg.Signature, msg.Timestamp, msg.Nonce, msg.GetInput())
 		this.logger.Debug("msg result:%i,%s", ret, result)
 		if ret == 0 {
+			var replymsg interface{}
+			rmsg := xmlBaseMessage{}
 			//消息处理
 			if strings.Contains(result, "ToUserName") {
+				if this.processor != nil {
+					//解析result，压入对象
+
+					msgdata := []byte(result)
+					xml.Unmarshal(msgdata, &rmsg)
+					//根据msgtype类型构造对应的消息结构
+					var realmsg interface{}
+					switch rmsg.MsgType {
+					case "text":
+						realmsg = WXxmlTextMessage{}
+					case "image":
+						realmsg = WXxmlImageMessage{}
+					case "voice":
+						realmsg = WXxmlVoiceMessage{}
+					case "video", "shortvideo":
+						realmsg = WXxmlVideoMessage{}
+					case "location":
+						realmsg = WXxmlLocationMessage{}
+					case "link":
+						realmsg = WXxmlLocationMessage{}
+
+					}
+					//重新解析消息
+					xml.Unmarshal(msgdata, &realmsg)
+					replymsg = this.processor.OnMessage(rmsg.MsgType, realmsg)
+
+				}
 
 			} else { //事件处理
-
+				if this.processor != nil {
+					event := XMLEvent{}
+					xml.Unmarshal([]byte(result), &event)
+					replymsg = this.processor.OnEvent(event)
+				}
 			}
 
+			//如果给的返回消息不为空回复微信
+			if replymsg != nil {
+
+				//输出xml格式，加密返回
+				if replyBaseMsg, ok := replymsg.(*xmlReplyBaseMessage); ok {
+					replyBaseMsg.CreateTime = time.Now().Unix()
+					enmsg, _ := xml.Marshal(msg)
+					_, result := this.encryted.EncryptMsg(string(enmsg), "wxcorpxingyun", fmt.Sprintf("%d", replyBaseMsg.CreateTime))
+					return result, nil
+				}
+				return "", nil
+			} else {
+				return "success", nil
+			}
 		}
 
 	}
@@ -410,6 +488,6 @@ func (this *WXPublicApplication) Post(c mvc.Context, p interface{}) (interface{}
 
 //消息处理接口，用于实现应用自身的逻辑
 type WXProcessor interface {
-	OnEvent() interface{}   //事件响应
-	OnMessage() interface{} //消息响应
+	OnEvent(event XMLEvent) interface{}                    //事件响应
+	OnMessage(msgtype string, msg interface{}) interface{} //消息响应
 }

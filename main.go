@@ -12,12 +12,15 @@ func main() {
 
 //load函数，如果加载成功返回true，否则返回FALSE
 func onServiceLoad(context *bingo.ApplicationContext) bool {
-
+	//构造processor
+	p := myprocessor{}
+	context.RegisterService("processor", &p)
 	return true
 }
 
 //controller load
 func onHandlerLoad(mvc *bingo.MvcEngine, context *bingo.ApplicationContext) bool {
-
+	wxcontroll := WXPublicApplication{}
+	mvc.AddController(&wxcontroll)
 	return true
 }
