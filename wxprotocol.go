@@ -26,7 +26,13 @@ const (
 	EVENT_VIEW     = "VIEW"        //跳转
 
 	//消息类型
-	MSGTYPE_TEXT = "text"
+	MSGTYPE_TEXT        = "text"
+	MSGTYPE_IMAGE       = "image"
+	MSGTYPE_VIDEO       = "video"
+	MSGTYPE_SHORT_VIDEO = "shortvideo"
+	MSGTYPE_VOICE       = "voice"
+	MSGTYPE_LOCATION    = "location"
+	MSGTYPE_LINK        = "link"
 )
 
 //微信的验证请求
@@ -279,12 +285,20 @@ type WXxmlLinkMessage struct {
 	Url         string //封面缩略图的url
 }
 
+type IReplyMsg interface {
+	GetBaseInfo() *xmlReplyBaseMessage
+}
+
 //被动回复消息格式
 type xmlReplyBaseMessage struct {
 	FromUserName string
 	ToUserName   string
 	CreateTime   int64
 	MsgType      string
+}
+
+func (this *xmlReplyBaseMessage) GetBaseInfo() *xmlReplyBaseMessage {
+	return this
 }
 
 //文本回复消息
@@ -451,22 +465,23 @@ func (this *WXPublicApplication) Post(c mvc.Context, p interface{}) (interface{}
 					//根据msgtype类型构造对应的消息结构
 					var realmsg interface{}
 					switch rmsg.MsgType {
-					case "text":
-						realmsg = WXxmlTextMessage{}
-					case "image":
-						realmsg = WXxmlImageMessage{}
-					case "voice":
-						realmsg = WXxmlVoiceMessage{}
-					case "video", "shortvideo":
-						realmsg = WXxmlVideoMessage{}
-					case "location":
-						realmsg = WXxmlLocationMessage{}
-					case "link":
-						realmsg = WXxmlLocationMessage{}
+					case MSGTYPE_TEXT:
+						realmsg = &WXxmlTextMessage{}
+					case MSGTYPE_IMAGE:
+						realmsg = &WXxmlImageMessage{}
+					case MSGTYPE_VOICE:
+						realmsg = &WXxmlVoiceMessage{}
+					case MSGTYPE_VIDEO, MSGTYPE_SHORT_VIDEO:
+						realmsg = &WXxmlVideoMessage{}
+					case MSGTYPE_LOCATION:
+						realmsg = &WXxmlLocationMessage{}
+					case MSGTYPE_LINK:
+						realmsg = &WXxmlLocationMessage{}
 
 					}
 					//重新解析消息
-					xml.Unmarshal(msgdata, &realmsg)
+					xml.Unmarshal(msgdata, realmsg)
+					this.logger.Debug("msg struct %s", realmsg)
 					replymsg = this.Processor.OnMessage(rmsg.MsgType, realmsg)
 
 				}
@@ -483,10 +498,12 @@ func (this *WXPublicApplication) Post(c mvc.Context, p interface{}) (interface{}
 			if replymsg != nil {
 
 				//输出xml格式，加密返回
-				if replyBaseMsg, ok := replymsg.(*xmlReplyBaseMessage); ok {
-					replyBaseMsg.CreateTime = time.Now().Unix()
-					enmsg, _ := xml.Marshal(msg)
-					_, result := this.encryted.EncryptMsg(string(enmsg), "wxcorpxingyun", fmt.Sprintf("%d", replyBaseMsg.CreateTime))
+				if replyBaseMsg, ok := replymsg.(IReplyMsg); ok {
+					this.logger.Debug("输出：%s", replymsg)
+					replyBaseMsg.GetBaseInfo().CreateTime = time.Now().Unix()
+					enmsg, _ := xml.Marshal(replymsg)
+					this.logger.Debug("reply:%s", enmsg)
+					_, result := this.encryted.EncryptMsg(string(enmsg), "wxcorpxingyun", fmt.Sprintf("%d", replyBaseMsg.GetBaseInfo().CreateTime))
 					return result, nil
 				}
 				return "", nil
@@ -503,6 +520,6 @@ func (this *WXPublicApplication) Post(c mvc.Context, p interface{}) (interface{}
 
 //消息处理接口，用于实现应用自身的逻辑
 type WXProcessor interface {
-	OnEvent(event XMLEvent) interface{}                    //事件响应
-	OnMessage(msgtype string, msg interface{}) interface{} //消息响应
+	OnEvent(event XMLEvent) interface{}                  //事件响应
+	OnMessage(msgtype string, msg interface{}) IReplyMsg //消息响应
 }

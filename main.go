@@ -14,6 +14,7 @@ func main() {
 func onServiceLoad(context *bingo.ApplicationContext) bool {
 	//构造processor
 	p := myprocessor{}
+	p.Init(context)
 	context.RegisterService("processor", &p)
 	return true
 }
