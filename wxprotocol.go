@@ -33,6 +33,7 @@ const (
 	MSGTYPE_VOICE       = "voice"
 	MSGTYPE_LOCATION    = "location"
 	MSGTYPE_LINK        = "link"
+	MSGTYPE_EVENT       = "event"
 )
 
 //微信的验证请求
@@ -305,7 +306,15 @@ func (this *xmlReplyBaseMessage) GetBaseInfo() *xmlReplyBaseMessage {
 type WXxmlReplyTextMessage struct {
 	XMLName xml.Name `xml:"xml"`
 	xmlReplyBaseMessage
-	Content string
+	Content CDATA
+}
+
+type CDATA string
+
+func (c CDATA) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	return e.EncodeElement(struct {
+		string `xml:",cdata"`
+	}{string(c)}, start)
 }
 
 type WXxmlReplyImageMessage struct {
@@ -456,42 +465,40 @@ func (this *WXPublicApplication) Post(c mvc.Context, p interface{}) (interface{}
 			var replymsg interface{}
 			rmsg := xmlBaseMessage{}
 			//消息处理
-			if strings.Contains(result, "ToUserName") {
-				if this.Processor != nil {
-					//解析result，压入对象
+			if this.Processor != nil {
+				//解析result，压入对象
 
-					msgdata := []byte(result)
-					xml.Unmarshal(msgdata, &rmsg)
-					//根据msgtype类型构造对应的消息结构
-					var realmsg interface{}
-					switch rmsg.MsgType {
-					case MSGTYPE_TEXT:
-						realmsg = &WXxmlTextMessage{}
-					case MSGTYPE_IMAGE:
-						realmsg = &WXxmlImageMessage{}
-					case MSGTYPE_VOICE:
-						realmsg = &WXxmlVoiceMessage{}
-					case MSGTYPE_VIDEO, MSGTYPE_SHORT_VIDEO:
-						realmsg = &WXxmlVideoMessage{}
-					case MSGTYPE_LOCATION:
-						realmsg = &WXxmlLocationMessage{}
-					case MSGTYPE_LINK:
-						realmsg = &WXxmlLocationMessage{}
+				msgdata := []byte(result)
+				xml.Unmarshal(msgdata, &rmsg)
+				//根据msgtype类型构造对应的消息结构
+				var realmsg interface{}
+				switch rmsg.MsgType {
+				case MSGTYPE_TEXT:
+					realmsg = &WXxmlTextMessage{}
+				case MSGTYPE_IMAGE:
+					realmsg = &WXxmlImageMessage{}
+				case MSGTYPE_VOICE:
+					realmsg = &WXxmlVoiceMessage{}
+				case MSGTYPE_VIDEO, MSGTYPE_SHORT_VIDEO:
+					realmsg = &WXxmlVideoMessage{}
+				case MSGTYPE_LOCATION:
+					realmsg = &WXxmlLocationMessage{}
+				case MSGTYPE_LINK:
+					realmsg = &WXxmlLocationMessage{}
+				case MSGTYPE_EVENT: //事件处理
 
-					}
-					//重新解析消息
-					xml.Unmarshal(msgdata, realmsg)
-					this.logger.Debug("msg struct %s", realmsg)
-					replymsg = this.Processor.OnMessage(rmsg.MsgType, realmsg)
-
-				}
-
-			} else { //事件处理
-				if this.Processor != nil {
 					event := XMLEvent{}
 					xml.Unmarshal([]byte(result), &event)
 					replymsg = this.Processor.OnEvent(event)
 				}
+
+				if realmsg != nil {
+					//重新解析消息
+					xml.Unmarshal(msgdata, realmsg)
+					this.logger.Debug("msg struct %s", realmsg)
+					replymsg = this.Processor.OnMessage(rmsg.MsgType, realmsg)
+				}
+
 			}
 
 			//如果给的返回消息不为空回复微信
@@ -520,6 +527,6 @@ func (this *WXPublicApplication) Post(c mvc.Context, p interface{}) (interface{}
 
 //消息处理接口，用于实现应用自身的逻辑
 type WXProcessor interface {
-	OnEvent(event XMLEvent) interface{}                  //事件响应
+	OnEvent(event XMLEvent) IReplyMsg                    //事件响应
 	OnMessage(msgtype string, msg interface{}) IReplyMsg //消息响应
 }

@@ -2,22 +2,25 @@ package main
 
 import (
 	"github.com/aosfather/bingo"
+	"github.com/aosfather/bingo/openapi"
 	"github.com/aosfather/bingo/utils"
 )
 
 //消息处理
 type myprocessor struct {
 	logger utils.Log
+	sdk    *openapi.TulingSDK
 }
 
 func (this *myprocessor) Init(context *bingo.ApplicationContext) {
 	this.logger = context.GetLog("processor")
+	this.sdk = &openapi.TulingSDK{"808811ad0fd34abaa6fe800b44a9556a"}
 }
 
 //事件响应
-func (this *myprocessor) OnEvent(event XMLEvent) interface{} {
+func (this *myprocessor) OnEvent(event XMLEvent) IReplyMsg {
 	this.logger.Debug("on event %v", event)
-	var reply interface{} = nil
+	var reply IReplyMsg = nil
 	switch event.Event {
 	case EVENT_SUB:
 		msg := WXxmlReplyTextMessage{}
@@ -58,9 +61,19 @@ func (this *myprocessor) OnMessage(msgtype string, msg interface{}) IReplyMsg {
 		msg.MsgType = MSGTYPE_TEXT
 		msg.ToUserName = realmsg.FromUserName
 		msg.FromUserName = realmsg.ToUserName
-		msg.Content = "测试一下,你说：" + text
+		msg.Content = CDATA(this.Reply(msg.ToUserName, text))
 		return &msg
 
 	}
 	return nil
+}
+
+//调用机器人进行回复
+func (this *myprocessor) Reply(user, msg string) string {
+	if this.sdk != nil {
+		return this.sdk.QueryAsString(user, msg)
+	}
+
+	return "[自动回复] 暂时不在线！"
+
 }
